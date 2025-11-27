@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 700" width="800" height="700">
+  <defs>
+    <style>
+      .box { fill: #e3f2fd; stroke: #1976d2; stroke-width: 2; }
+      .external { fill: #fff3e0; stroke: #f57c00; stroke-width: 2; }
+      .storage { fill: #f3e5f5; stroke: #7b1fa2; stroke-width: 2; }
+      .text { font-family: 'Arial', sans-serif; font-size: 14px; fill: #212121; text-anchor: middle; }
+      .small-text { font-family: 'Arial', sans-serif; font-size: 12px; fill: #424242; text-anchor: middle; }
+      .arrow { stroke: #424242; stroke-width: 2; fill: none; marker-end: url(#arrowhead); }
+      .arrow-label { font-family: 'Arial', sans-serif; font-size: 11px; fill: #424242; text-anchor: middle; }
+      .note { font-family: 'Arial', sans-serif; font-size: 11px; fill: #616161; font-style: italic; }
+    </style>
+    <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <polygon points="0 0, 10 3, 0 6" fill="#424242" />
+    </marker>
+  </defs>
+  
+  <!-- Discord User -->
+  <rect x="320" y="20" width="160" height="50" class="external" rx="5"/>
+  <text x="400" y="50" class="text">Discord User</text>
+  
+  <!-- Arrow: User to Bot -->
+  <path d="M 400 70 L 400 110" class="arrow"/>
+  <text x="480" y="90" class="arrow-label">/generate コマンド</text>
+  
+  <!-- Discord Bot -->
+  <rect x="300" y="110" width="200" height="60" class="box" rx="5"/>
+  <text x="400" y="135" class="text">Discord Bot</text>
+  <text x="400" y="155" class="small-text">指示/状態表示</text>
+  
+  <!-- Arrow: Bot to Prompt Agent -->
+  <path d="M 400 170 L 400 210" class="arrow"/>
+  <text x="500" y="190" class="arrow-label">instruction + 過去履歴</text>
+  
+  <!-- Prompt Agent (LLM) -->
+  <rect x="280" y="210" width="240" height="60" class="box" rx="5"/>
+  <text x="400" y="235" class="text">Prompt Agent (LLM)</text>
+  <text x="400" y="255" class="small-text">最適化プロンプト</text>
+  
+  <!-- Settings Service / DB -->
+  <rect x="580" y="210" width="180" height="80" class="storage" rx="5"/>
+  <text x="670" y="235" class="text">Settings Service</text>
+  <text x="670" y="255" class="text">/ DB</text>
+  <text x="670" y="275" class="small-text">永続化</text>
+  
+  <!-- Arrow: Prompt Agent to Settings -->
+  <path d="M 520 240 L 580 240" class="arrow"/>
+  <text x="550" y="230" class="arrow-label" text-anchor="middle">設定参照</text>
+  
+  <!-- Arrow: Prompt Agent to Queue Manager -->
+  <path d="M 400 270 L 400 330" class="arrow"/>
+  
+  <!-- Queue Manager -->
+  <rect x="280" y="330" width="240" height="60" class="box" rx="5"/>
+  <text x="400" y="355" class="text">Queue Manager</text>
+  <text x="400" y="375" class="small-text">(非同期処理)</text>
+  
+  <!-- Stable Diffusion API -->
+  <rect x="580" y="330" width="180" height="80" class="external" rx="5"/>
+  <text x="670" y="355" class="text">Stable Diffusion</text>
+  <text x="670" y="375" class="text">API</text>
+  <text x="670" y="395" class="small-text">(A1111 REST)</text>
+  
+  <!-- Arrow: Queue Manager to SD API -->
+  <path d="M 520 360 L 580 360" class="arrow"/>
+  <text x="550" y="350" class="arrow-label" text-anchor="middle">生成リクエスト</text>
+  
+  <!-- Arrow: SD API to Image -->
+  <path d="M 670 410 L 670 450" class="arrow"/>
+  <text x="720" y="430" class="arrow-label">画像</text>
+  
+  <!-- Image Storage -->
+  <rect x="280" y="450" width="240" height="60" class="storage" rx="5"/>
+  <text x="400" y="485" class="text">Image Storage</text>
+  
+  <!-- Arrow: Queue Manager to Image Storage -->
+  <path d="M 400 390 L 400 450" class="arrow"/>
+  
+  <!-- Arrow: SD API result to Image Storage -->
+  <path d="M 670 450 L 520 480" class="arrow"/>
+  <text x="600" y="460" class="arrow-label">保存</text>
+  
+  <!-- Arrow: Settings to Queue Manager -->
+  <path d="M 670 290 L 670 320 L 520 360" class="arrow"/>
+  
+  <!-- Bottom Notes -->
+  <text x="100" y="590" class="note" text-anchor="start">(Ollama LLM サーバ)</text>
+  <text x="100" y="610" class="note" text-anchor="start">(SQLite + 画像ディレクトリ)</text>
+  
+  <!-- Legend -->
+  <g transform="translate(50, 630)">
+    <rect x="0" y="0" width="80" height="30" class="box" rx="3"/>
+    <text x="40" y="20" class="small-text">内部処理</text>
+    
+    <rect x="100" y="0" width="80" height="30" class="external" rx="3"/>
+    <text x="140" y="20" class="small-text">外部サービス</text>
+    
+    <rect x="200" y="0" width="80" height="30" class="storage" rx="3"/>
+    <text x="240" y="20" class="small-text">ストレージ</text>
+  </g>
+</svg>
