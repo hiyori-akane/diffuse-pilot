@@ -52,6 +52,9 @@ cp .env.example .env
 - `OLLAMA_API_URL`: Ollama API URL (default: http://localhost:11434)
 - `OLLAMA_MODEL`: 使用するLLMモデル (default: huihui_ai/gpt-oss-abliterated:20b-v2-q4_K_M)
 
+オプションの環境変数：
+- `GEMINI_API_KEY`: Gemini API キー（`/generate_gemini` コマンドを使用する場合に必要）
+
 ### 4. データベースのマイグレーション
 
 ```bash
@@ -78,6 +81,8 @@ python -m src.main
 
 ### Discord での画像生成
 
+#### 通常モード (`/generate`)
+
 1. Discordサーバーで `/generate` コマンドを実行
 2. `instruction` パラメータに生成したい画像の説明を入力（日本語OK）
 3. Botがスレッドを作成し、画像生成を開始
@@ -87,6 +92,27 @@ python -m src.main
 ```
 /generate instruction:和風サイバーパンクの女性、夕景、彩度高め
 ```
+
+#### Gemini AIモード (`/generate_gemini`)
+
+1. Discordサーバーで `/generate_gemini` コマンドを実行
+2. `instruction` パラメータに生成したい画像の説明を入力（日本語OK）
+3. Gemini APIが直接画像を生成（Stable Diffusion不使用）
+4. 完了すると生成された画像がスレッドに投稿されます
+
+例：
+```
+/generate_gemini instruction:美しい夕焼けの山の風景
+```
+
+**Geminiモードの特徴:**
+- **Gemini 3 Pro Image APIで直接画像生成**
+- Stable Diffusionを使用せず、Gemini APIのみで完結
+- 最高品質の画像生成設定
+- Thought signaturesを保存し、会話的な画像編集に対応（今後実装予定）
+- 日本語の指示から自然に高品質な画像を生成
+
+**注意:** Geminiモードを使用するには、環境変数に `GEMINI_API_KEY` を設定する必要があります。
 
 ### ヘルスチェック
 

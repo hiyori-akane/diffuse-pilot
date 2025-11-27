@@ -63,13 +63,19 @@ bot = DiffusePilotBot()
 
 
 @bot.tree.command(name="generate", description="画像を生成します")
-@app_commands.describe(instruction="生成したい画像の説明（日本語OK）")
-async def generate_command(interaction: discord.Interaction, instruction: str):
+@app_commands.describe(
+    instruction="生成したい画像の説明（日本語OK）",
+    web_research="Webからベストプラクティスをリサーチして反映（デフォルト: False）",
+)
+async def generate_command(
+    interaction: discord.Interaction, instruction: str, web_research: bool = False
+):
     """画像生成コマンド
 
     Args:
         interaction: Discord インタラクション
         instruction: ユーザーの指示
+        web_research: Webリサーチを実施するか
     """
     cmd_logger = get_logger_with_context(
         __name__,
@@ -80,13 +86,14 @@ async def generate_command(interaction: discord.Interaction, instruction: str):
     try:
         cmd_logger.info(
             f"Generate command received: {instruction[:100]}...",
-            extra={"instruction_length": len(instruction)},
+            extra={"instruction_length": len(instruction), "web_research": web_research},
         )
 
         # まずは応答（3秒以内に応答が必要）
         # 最初のメッセージを送信
+        research_status = "（Webリサーチ有効）" if web_research else ""
         await interaction.response.send_message(
-            f"🎨 画像生成を開始します...\n指示: {instruction[:100]}{'...' if len(instruction) > 100 else ''}"
+            f"🎨 画像生成を開始します...{research_status}\n指示: {instruction[:100]}{'...' if len(instruction) > 100 else ''}"
         )
 
         # メッセージからスレッドを作成（message_idを指定）
@@ -105,6 +112,7 @@ async def generate_command(interaction: discord.Interaction, instruction: str):
                 user_id=str(interaction.user.id),
                 thread_id=str(thread.id),
                 original_instruction=instruction,
+                web_research=web_research,
             )
             session.add(request)
             await session.commit()
@@ -129,6 +137,156 @@ async def generate_command(interaction: discord.Interaction, instruction: str):
 
     except Exception as e:
         cmd_logger.exception(f"Error in generate command: {str(e)}")
+        error_msg = "エラーが発生しました。もう一度お試しください。"
+        if isinstance(e, ApplicationError):
+            error_msg = f"エラー: {e.message}"
+
+        try:
+            await interaction.followup.send(f"❌ {error_msg}", ephemeral=True)
+        except Exception:
+            pass
+
+
+@bot.tree.command(name="generate_gemini", description="Gemini APIで画像を生成します")
+@app_commands.describe(instruction="生成したい画像の説明（日本語OK）")
+async def generate_gemini_command(interaction: discord.Interaction, instruction: str):
+    """Gemini APIを使用した画像生成コマンド
+
+    Args:
+        interaction: Discord インタラクション
+        instruction: ユーザーの指示
+    """
+    cmd_logger = get_logger_with_context(
+        __name__,
+        guild_id=str(interaction.guild_id),
+        user_id=str(interaction.user.id),
+    )
+
+    try:
+        cmd_logger.info(
+            f"Generate Gemini command received: {instruction[:100]}...",
+            extra={"instruction_length": len(instruction)},
+        )
+
+        # まずは応答（3秒以内に応答が必要）
+        await interaction.response.send_message(
+            f"✨ Gemini APIで画像生成を開始します...\n指示: {instruction[:100]}{'...' if len(instruction) > 100 else ''}"
+        )
+
+        # メッセージからスレッドを作成
+        message = await interaction.original_response()
+        thread = await interaction.channel.create_thread(
+            name=f"Gemini生成: {instruction[:50]}",
+            message=message,
+            auto_archive_duration=1440,  # 24時間
+        )
+
+        # GenerationRequest を作成（Geminiモードフラグを追加）
+        async with bot.session_maker() as session:
+            request = GenerationRequest(
+                guild_id=str(interaction.guild_id),
+                user_id=str(interaction.user.id),
+                thread_id=str(thread.id),
+                original_instruction=instruction,
+            )
+            session.add(request)
+            await session.commit()
+            await session.refresh(request)
+
+            cmd_logger.info(
+                f"Gemini generation request created: {request.id}",
+                extra={"thread_id": thread.id},
+            )
+
+            # Geminiモード専用のキューに追加
+            await bot.queue_manager.enqueue_gemini_generation(request.id)
+
+            await thread.send(
+                f"✅ Geminiリクエストをキューに追加しました\n"
+                f"リクエストID: `{request.id}`\n"
+                f"🧠 Gemini APIで画像生成中... お待ちください ☕"
+            )
+
+        # バックグラウンドで結果を監視して投稿
+        asyncio.create_task(_monitor_and_post_results(request.id, thread))
+
+    except Exception as e:
+        cmd_logger.exception(f"Error in generate gemini command: {str(e)}")
+        error_msg = "エラーが発生しました。もう一度お試しください。"
+        if isinstance(e, ApplicationError):
+            error_msg = f"エラー: {e.message}"
+
+        try:
+            await interaction.followup.send(f"❌ {error_msg}", ephemeral=True)
+        except Exception:
+            pass
+
+
+@bot.tree.command(name="generate_xai", description="xAI API（Grok）で画像を生成します")
+@app_commands.describe(instruction="生成したい画像の説明（日本語OK）")
+async def generate_xai_command(interaction: discord.Interaction, instruction: str):
+    """xAI APIを使用した画像生成コマンド
+
+    Args:
+        interaction: Discord インタラクション
+        instruction: ユーザーの指示
+    """
+    cmd_logger = get_logger_with_context(
+        __name__,
+        guild_id=str(interaction.guild_id),
+        user_id=str(interaction.user.id),
+    )
+
+    try:
+        cmd_logger.info(
+            f"Generate xAI command received: {instruction[:100]}...",
+            extra={"instruction_length": len(instruction)},
+        )
+
+        # まずは応答（3秒以内に応答が必要）
+        await interaction.response.send_message(
+            f"🤖 xAI API（Grok）で画像生成を開始します...\n指示: {instruction[:100]}{'...' if len(instruction) > 100 else ''}"
+        )
+
+        # メッセージからスレッドを作成
+        message = await interaction.original_response()
+        thread = await interaction.channel.create_thread(
+            name=f"xAI生成: {instruction[:50]}",
+            message=message,
+            auto_archive_duration=1440,  # 24時間
+        )
+
+        # GenerationRequest を作成（xAIモード）
+        async with bot.session_maker() as session:
+            request = GenerationRequest(
+                guild_id=str(interaction.guild_id),
+                user_id=str(interaction.user.id),
+                thread_id=str(thread.id),
+                original_instruction=instruction,
+            )
+            session.add(request)
+            await session.commit()
+            await session.refresh(request)
+
+            cmd_logger.info(
+                f"xAI generation request created: {request.id}",
+                extra={"thread_id": thread.id},
+            )
+
+            # xAIモード専用のキューに追加
+            await bot.queue_manager.enqueue_xai_generation(request.id)
+
+            await thread.send(
+                f"✅ xAIリクエストをキューに追加しました\n"
+                f"リクエストID: `{request.id}`\n"
+                f"🤖 xAI API（Grok-2-Image）で画像生成中... お待ちください ☕"
+            )
+
+        # バックグラウンドで結果を監視して投稿
+        asyncio.create_task(_monitor_and_post_results(request.id, thread))
+
+    except Exception as e:
+        cmd_logger.exception(f"Error in generate xai command: {str(e)}")
         error_msg = "エラーが発生しました。もう一度お試しください。"
         if isinstance(e, ApplicationError):
             error_msg = f"エラー: {e.message}"
@@ -275,8 +433,25 @@ async def _monitor_and_post_results(request_id: str, thread: discord.Thread):
                                 if param_key in raw and raw[param_key] is not None:
                                     param_lines.append(f"• {param_label}: {raw[param_key]}")
 
-                        info_text = (
-                            f"🎉 画像生成が完了しました！ ({len(images)}枚)\n\n"
+                        info_text = f"🎉 画像生成が完了しました！ ({len(images)}枚)\n\n"
+
+                        # Webリサーチ結果を表示
+                        if metadata.raw_params and metadata.raw_params.get("web_research"):
+                            research = metadata.raw_params["web_research"]
+                            info_text += "**📚 Webリサーチサマリー:**\n"
+                            if research.get("summary"):
+                                info_text += f"{research['summary']}\n\n"
+                            if research.get("prompt_techniques"):
+                                techniques = ", ".join(
+                                    research["prompt_techniques"][:3]
+                                )  # 最初の3つだけ表示
+                                info_text += f"💡 推奨テクニック: {techniques}\n"
+                            if research.get("sources"):
+                                # 最初の2つのソースだけ表示
+                                sources = research["sources"][:2]
+                                info_text += f"📖 参照元: {', '.join(sources)}\n\n"
+
+                        info_text += (
                             f"**プロンプト:**\n```\n{metadata.prompt[:500]}\n```\n"
                             f"**パラメータ:**\n" + "\n".join(param_lines)
                         )

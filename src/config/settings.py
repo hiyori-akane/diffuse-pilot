@@ -3,6 +3,7 @@
 
 環境変数を読み込み、アプリケーション全体で使用する設定を提供します。
 """
+
 from functools import lru_cache
 from pathlib import Path
 
@@ -23,12 +24,16 @@ class Settings(BaseSettings):
     sd_api_timeout: int = Field(default=600, description="SD API タイムアウト（秒）")
 
     # Ollama LLM Configuration
-    ollama_api_url: str = Field(
-        default="http://localhost:11434", description="Ollama API URL"
-    )
+    ollama_api_url: str = Field(default="http://localhost:11434", description="Ollama API URL")
     ollama_model: str = Field(
         default="huihui_ai/qwen3-abliterated:0.6b", description="使用する LLM モデル"
     )
+
+    # Gemini API Configuration
+    gemini_api_key: str = Field(default="", description="Gemini API キー")
+
+    # xAI API Configuration
+    xai_api_key: str = Field(default="", description="xAI API キー")
 
     # Database Configuration
     database_url: str = Field(

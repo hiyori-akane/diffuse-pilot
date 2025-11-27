@@ -39,19 +39,26 @@ class PromptAgent:
     # SD パラメータのキー名リスト（promptとnegative_prompt以外）
     _SD_PARAM_KEYS = ["steps", "cfg_scale", "sampler", "width", "height"]
 
+    # Webリサーチスキップキーワード
+    WEB_RESEARCH_SKIP_KEYWORDS = ["リサーチなし", "リサーチしない", "調べないで", "すぐに生成"]
+
     def __init__(self):
         self.settings = get_settings()
         self.llm_client = OllamaClient()
+        self._web_research_service = None  # Lazy initialization to avoid circular import
 
     async def close(self):
         """クライアントを閉じる"""
         await self.llm_client.close()
+        if self._web_research_service:
+            await self._web_research_service.close()
 
     async def generate_prompt(
         self,
         user_instruction: str,
         previous_metadata: GenerationMetadata | None = None,
         global_settings: dict[str, Any] | None = None,
+        web_research: bool = False,
     ) -> dict[str, Any]:
         """ユーザー指示からプロンプトとパラメータを生成
 
@@ -59,6 +66,7 @@ class PromptAgent:
             user_instruction: ユーザーの自然言語指示
             previous_metadata: 前回の生成メタデータ（追加指示の場合）
             global_settings: グローバル設定
+            web_research: Webリサーチを実施するか
 
         Returns:
             生成されたプロンプトとパラメータの辞書
@@ -69,15 +77,20 @@ class PromptAgent:
         try:
             logger.info(
                 f"Generating prompt from user instruction: {user_instruction[:100]}...",
-                extra={"has_previous": previous_metadata is not None},
+                extra={"has_previous": previous_metadata is not None, "web_research": web_research},
             )
+
+            # Webリサーチを実施（要求された場合のみ）
+            research_result = None
+            if web_research and not previous_metadata:  # 新規生成時のみリサーチ
+                research_result = await self._perform_web_research(user_instruction)
 
             # システムプロンプト構築
             system_prompt = self._build_system_prompt()
 
             # ユーザープロンプト構築
             user_prompt = self._build_user_prompt(
-                user_instruction, previous_metadata, global_settings
+                user_instruction, previous_metadata, global_settings, research_result
             )
 
             # LLM で生成
@@ -102,7 +115,13 @@ class PromptAgent:
             result = response_model.model_dump()
 
             # デフォルト値とマージ
-            result = self._apply_defaults(result, previous_metadata, global_settings)
+            result = self._apply_defaults(
+                result, previous_metadata, global_settings, research_result
+            )
+
+            # Webリサーチ結果を含める
+            if research_result:
+                result["web_research"] = research_result
 
             logger.info(
                 f"Prompt generation complete: {len(result['prompt'])} chars",
@@ -142,6 +161,7 @@ class PromptAgent:
         user_instruction: str,
         previous_metadata: GenerationMetadata | None = None,
         global_settings: dict[str, Any] | None = None,
+        research_result: dict[str, Any] | None = None,
     ) -> str:
         """ユーザープロンプトを構築"""
         if previous_metadata:
@@ -162,6 +182,18 @@ CFG スケール: {previous_metadata.cfg_scale}
             # 新規生成の場合
             prompt = f"ユーザーの指示: {user_instruction}\n\n"
 
+            # Webリサーチ結果を追加
+            if research_result:
+                prompt += "Webリサーチ結果:\n"
+                if research_result.get("summary"):
+                    prompt += f"要約: {research_result['summary']}\n\n"
+                if research_result.get("prompt_techniques"):
+                    techniques = ", ".join(research_result["prompt_techniques"])
+                    prompt += f"推奨プロンプトテクニック: {techniques}\n\n"
+                if research_result.get("recommended_settings"):
+                    settings = research_result["recommended_settings"]
+                    prompt += f"推奨設定: {settings}\n\n"
+
             if global_settings:
                 default_prompt_suffix = global_settings.get("default_prompt_suffix")
                 if default_prompt_suffix:
@@ -176,10 +208,11 @@ CFG スケール: {previous_metadata.cfg_scale}
         result: dict[str, Any],
         previous_metadata: GenerationMetadata | None = None,
         global_settings: dict[str, Any] | None = None,
+        research_result: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """デフォルト値を適用
 
-        優先順位: グローバル設定 > LLM生成値 > デフォルト値
+        優先順位: グローバル設定 > Webリサーチ > LLM生成値 > デフォルト値
         ただし、promptとnegative_promptはLLM生成値を優先
         """
         # 前回のメタデータがあればそれを優先
@@ -218,6 +251,15 @@ CFG スケール: {previous_metadata.cfg_scale}
             if key not in result or result[key] is None:
                 result[key] = default_value
 
+        # Webリサーチの推奨設定を適用（グローバル設定より優先度低い）
+        if research_result and not previous_metadata:
+            recommended = research_result.get("recommended_settings", {})
+            for key in self._SD_PARAM_KEYS:
+                # LLMが生成していない、かつグローバル設定にもない場合のみ適用
+                if recommended.get(key) is not None:
+                    if key not in result or result[key] is None:
+                        result[key] = recommended[key]
+
         # グローバル設定から明示的に設定された値で上書き（ユーザー設定を優先）
         if global_settings:
             # sd_params の明示的な設定で上書き
@@ -249,3 +291,36 @@ CFG スケール: {previous_metadata.cfg_scale}
             result["seed"] = random.randint(0, 2**32 - 1)
 
         return result
+
+    async def _perform_web_research(self, user_instruction: str) -> dict[str, Any] | None:
+        """Webリサーチを実施
+
+        Args:
+            user_instruction: ユーザーの指示
+
+        Returns:
+            リサーチ結果、実施しない場合はNone
+        """
+        # Lazy initialization of web research service (singleton per PromptAgent instance)
+        if self._web_research_service is None:
+            from src.services.web_research import WebResearchService
+
+            self._web_research_service = WebResearchService()
+
+        try:
+            # "リサーチなしで生成" などのキーワードをチェック
+            if any(keyword in user_instruction for keyword in self.WEB_RESEARCH_SKIP_KEYWORDS):
+                logger.info("Skipping web research due to user instruction")
+                return None
+
+            # Webリサーチを実施
+            research_result = await self._web_research_service.research_best_practices(
+                user_instruction
+            )
+
+            return research_result
+
+        except Exception as e:
+            # Webリサーチに失敗してもエラーにせず、警告だけ出す
+            logger.warning(f"Web research failed, continuing without it: {str(e)}")
+            return None

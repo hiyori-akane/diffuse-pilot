@@ -3,6 +3,7 @@ Bot 起動スクリプト
 
 Discord Bot とキューワーカーを起動します。
 """
+
 import asyncio
 
 from src.config.logging import setup_logging

@@ -3,6 +3,7 @@
 
 GenerationRequest, GenerationMetadata, GeneratedImage
 """
+
 import uuid
 from datetime import datetime
 from enum import Enum
@@ -33,6 +34,7 @@ class GenerationRequest(Base):
     user_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     thread_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     original_instruction: Mapped[str] = mapped_column(Text, nullable=False)
+    web_research: Mapped[bool] = mapped_column(nullable=False, default=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default=RequestStatus.PENDING)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(nullable=False, default=datetime.utcnow)
@@ -85,7 +87,9 @@ class GenerationMetadata(Base):
     created_at: Mapped[datetime] = mapped_column(nullable=False, default=datetime.utcnow)
 
     # リレーション
-    request: Mapped["GenerationRequest"] = relationship("GenerationRequest", back_populates="generation_metadata")
+    request: Mapped["GenerationRequest"] = relationship(
+        "GenerationRequest", back_populates="generation_metadata"
+    )
     images: Mapped[list["GeneratedImage"]] = relationship(
         "GeneratedImage", back_populates="generation_metadata"
     )
@@ -114,7 +118,9 @@ class GeneratedImage(Base):
     created_at: Mapped[datetime] = mapped_column(nullable=False, default=datetime.utcnow)
 
     # リレーション
-    request: Mapped["GenerationRequest"] = relationship("GenerationRequest", back_populates="images")
+    request: Mapped["GenerationRequest"] = relationship(
+        "GenerationRequest", back_populates="images"
+    )
     generation_metadata: Mapped["GenerationMetadata"] = relationship(
         "GenerationMetadata", back_populates="images"
     )

@@ -3,6 +3,7 @@
 
 構造化ログを提供します。
 """
+
 import logging
 import sys
 from typing import Any

@@ -3,6 +3,7 @@
 
 asyncio.Queue ベースの軽量タスクキューシステム
 """
+
 import asyncio
 import uuid
 from dataclasses import dataclass
@@ -19,19 +20,21 @@ from src.models.generation import (
     GenerationRequest,
     RequestStatus,
 )
-from src.services.error_handler import ApplicationError, DatabaseError
+from src.services.error_handler import ApplicationError, DatabaseError, ErrorCode
 from src.services.prompt_agent import PromptAgent
 from src.services.sd_client import SDGenerationParams, StableDiffusionClient
 
 logger = get_logger(__name__)
 
 
-@dataclass
+@dataclass(order=True)
 class QueuedTask:
     """キューイングされたタスク（メモリ内）"""
 
-    request_id: str
-    priority: int = 0
+    priority: int = 0  # 優先度（PriorityQueueで使用）
+    request_id: str = ""
+    use_gemini: bool = False
+    use_xai: bool = False
 
 
 class QueueManager:
@@ -90,8 +93,9 @@ class QueueManager:
             for request in pending_requests:
                 # ステータスを PENDING に戻す
                 request.status = RequestStatus.PENDING
-                # キューに追加（優先度は0）
-                await self.queue.put((-0, request.id))
+                # キューに追加（優先度は0、通常モード）
+                task = QueuedTask(priority=0, request_id=request.id, use_gemini=False)
+                await self.queue.put(task)
 
             if pending_requests:
                 await session.commit()
@@ -116,9 +120,7 @@ class QueueManager:
 
         logger.info("Queue worker stopped")
 
-    async def enqueue_generation(
-        self, request_id: str, priority: int = 0
-    ) -> None:
+    async def enqueue_generation(self, request_id: str, priority: int = 0) -> None:
         """画像生成タスクをキューに追加
 
         Args:
@@ -126,11 +128,44 @@ class QueueManager:
             priority: 優先度（高いほど優先）
         """
         # PriorityQueue は小さい値が優先されるため、負の値にする
-        await self.queue.put((-priority, request_id))
+        task = QueuedTask(priority=-priority, request_id=request_id, use_gemini=False)
+        await self.queue.put(task)
 
         logger.info(
             f"Task enqueued: {request_id}",
             extra={"request_id": request_id, "priority": priority},
+        )
+
+    async def enqueue_gemini_generation(self, request_id: str, priority: int = 0) -> None:
+        """Gemini APIを使用した画像生成タスクをキューに追加
+
+        Args:
+            request_id: GenerationRequest の ID
+            priority: 優先度（高いほど優先）
+        """
+        # PriorityQueue は小さい値が優先されるため、負の値にする
+        task = QueuedTask(priority=-priority, request_id=request_id, use_gemini=True)
+        await self.queue.put(task)
+
+        logger.info(
+            f"Gemini task enqueued: {request_id}",
+            extra={"request_id": request_id, "priority": priority, "mode": "gemini"},
+        )
+
+    async def enqueue_xai_generation(self, request_id: str, priority: int = 0) -> None:
+        """xAI APIを使用した画像生成タスクをキューに追加
+
+        Args:
+            request_id: GenerationRequest の ID
+            priority: 優先度（高いほど優先）
+        """
+        # PriorityQueue は小さい値が優先されるため、負の値にする
+        task = QueuedTask(priority=-priority, request_id=request_id, use_xai=True)
+        await self.queue.put(task)
+
+        logger.info(
+            f"xAI task enqueued: {request_id}",
+            extra={"request_id": request_id, "priority": priority, "mode": "xai"},
         )
 
     async def _worker_loop(self):
@@ -140,10 +175,15 @@ class QueueManager:
         while self.is_running:
             try:
                 # キューからタスクを取得（ブロッキング、タスクがあるまで待機）
-                priority, request_id = await self.queue.get()
+                task: QueuedTask = await self.queue.get()
 
                 # タスクを処理
-                await self._process_image_generation(request_id)
+                if task.use_gemini:
+                    await self._process_gemini_generation(task.request_id)
+                elif task.use_xai:
+                    await self._process_xai_generation(task.request_id)
+                else:
+                    await self._process_image_generation(task.request_id)
 
                 # タスク完了を通知
                 self.queue.task_done()
@@ -208,7 +248,9 @@ class QueueManager:
                 # プロンプト生成
                 task_logger.info("Generating prompt...")
                 prompt_result = await self.prompt_agent.generate_prompt(
-                    request.original_instruction, global_settings=global_settings
+                    request.original_instruction,
+                    global_settings=global_settings,
+                    web_research=request.web_research,
                 )
 
                 # GenerationMetadata を作成
@@ -406,3 +448,277 @@ class QueueManager:
             sd_params_kwargs["refiner_checkpoint"] = global_settings["refiner_checkpoint"]
         if global_settings.get("refiner_switch_at") is not None:
             sd_params_kwargs["refiner_switch_at"] = global_settings["refiner_switch_at"]
+
+    async def _process_gemini_generation(self, request_id: str):
+        """Gemini APIで直接画像を生成するタスクを処理
+
+        Args:
+            request_id: GenerationRequest の ID
+        """
+        task_logger = get_logger_with_context(__name__, request_id=request_id)
+
+        async with self.session_maker() as session:
+            # リクエストを取得
+            request = await self._get_request(session, request_id)
+            if not request:
+                raise DatabaseError(f"Request not found: {request_id}")
+
+            task_logger.info(
+                f"Processing Gemini direct image generation for request: {request_id}",
+                extra={
+                    "guild_id": request.guild_id,
+                    "user_id": request.user_id,
+                    "instruction": request.original_instruction[:100],
+                },
+            )
+
+            try:
+                # ステータスを PROCESSING に更新
+                request.status = RequestStatus.PROCESSING
+                await session.commit()
+
+                # Gemini APIで直接画像を生成
+                task_logger.info("Generating images with Gemini API...")
+                from src.services.gemini_client import GeminiClient
+
+                gemini_client = GeminiClient()
+
+                # Geminiで画像生成（最高品質設定）
+                gemini_result = await gemini_client.generate_images(
+                    instruction=request.original_instruction,
+                    reference_image=None,  # 初回生成では参照画像なし
+                    previous_thought_signatures=None,  # 初回生成ではsignaturesなし
+                )
+
+                images = gemini_result.get("images", [])
+                thought_signatures = gemini_result.get("thought_signatures", [])
+                description = gemini_result.get("description", "")
+
+                task_logger.info(
+                    f"Gemini generated {len(images)} images",
+                    extra={
+                        "thought_signatures_count": len(thought_signatures),
+                        "description_length": len(description),
+                    },
+                )
+
+                if not images:
+                    raise ApplicationError(
+                        code=ErrorCode.LLM_GENERATION_ERROR,
+                        message="Gemini APIから画像が生成されませんでした",
+                    )
+
+                # GenerationMetadata を作成
+                metadata = GenerationMetadata(
+                    request_id=request.id,
+                    prompt=request.original_instruction,  # オリジナルの指示を保存
+                    negative_prompt="",  # Geminiは自動処理
+                    model_name="gemini-3-pro-image-preview",
+                    lora_list=None,
+                    steps=0,  # Geminiでは不要
+                    cfg_scale=0.0,  # Geminiでは不要
+                    sampler="Gemini",
+                    scheduler=None,
+                    seed=-1,
+                    width=0,  # 画像サイズは生成後に取得
+                    height=0,
+                    raw_params={
+                        "original_instruction": request.original_instruction,
+                        "description": description,
+                        "thought_signatures": thought_signatures,
+                        "gemini_model": "gemini-3-pro-image-preview",
+                    },
+                )
+                session.add(metadata)
+                await session.commit()
+                await session.refresh(metadata)
+
+                task_logger.info(
+                    "Metadata created for Gemini generation",
+                    extra={"metadata_id": metadata.id},
+                )
+
+                # 画像を保存
+                task_logger.info("Saving images to storage...")
+                for i, img in enumerate(images):
+                    # ファイル名生成
+                    image_id = str(uuid.uuid4())
+                    filename = f"{image_id}.png"
+                    file_path = self.settings.image_storage_path / filename
+
+                    # 画像を保存
+                    img.save(file_path, format="PNG")
+                    file_size = file_path.stat().st_size
+
+                    # DB に保存
+                    generated_image = GeneratedImage(
+                        request_id=request.id,
+                        metadata_id=metadata.id,
+                        file_path=str(file_path),
+                        file_size_bytes=file_size,
+                    )
+                    session.add(generated_image)
+
+                    task_logger.info(
+                        f"Saved image {i + 1}/{len(images)}: {filename}",
+                        extra={"file_size": file_size},
+                    )
+
+                await session.commit()
+
+                # リクエストを COMPLETED に更新
+                request.status = RequestStatus.COMPLETED
+                await session.commit()
+
+                task_logger.info(
+                    f"Gemini direct image generation completed for request: {request_id}"
+                )
+
+            except ApplicationError as e:
+                # アプリケーションエラー
+                request.status = RequestStatus.FAILED
+                request.error_message = e.message
+                await session.commit()
+                raise
+
+            except Exception as e:
+                # 予期しないエラー
+                request.status = RequestStatus.FAILED
+                request.error_message = str(e)
+                await session.commit()
+                raise
+
+    async def _process_xai_generation(self, request_id: str):
+        """xAI APIで直接画像を生成するタスクを処理
+
+        Args:
+            request_id: GenerationRequest の ID
+        """
+        task_logger = get_logger_with_context(__name__, request_id=request_id)
+
+        async with self.session_maker() as session:
+            # リクエストを取得
+            request = await self._get_request(session, request_id)
+            if not request:
+                raise DatabaseError(f"Request not found: {request_id}")
+
+            task_logger.info(
+                f"Processing xAI direct image generation for request: {request_id}",
+                extra={
+                    "guild_id": request.guild_id,
+                    "user_id": request.user_id,
+                    "instruction": request.original_instruction[:100],
+                },
+            )
+
+            try:
+                # ステータスを PROCESSING に更新
+                request.status = RequestStatus.PROCESSING
+                await session.commit()
+
+                # xAI APIで直接画像を生成
+                task_logger.info("Generating images with xAI API...")
+                from src.services.xai_client import XAIClient
+
+                xai_client = XAIClient()
+
+                try:
+                    # xAIで画像生成
+                    xai_result = await xai_client.generate_images(
+                        prompt=request.original_instruction,
+                        n=1,  # xAI APIは1回のリクエストで1枚が推奨
+                        response_format="b64_json",
+                    )
+
+                    images = xai_result.get("images", [])
+
+                    task_logger.info(
+                        f"xAI generated {len(images)} images",
+                    )
+
+                    if not images:
+                        raise ApplicationError(
+                            code=ErrorCode.LLM_GENERATION_ERROR,
+                            message="xAI APIから画像が生成されませんでした",
+                        )
+
+                    # GenerationMetadata を作成
+                    metadata = GenerationMetadata(
+                        request_id=request.id,
+                        prompt=request.original_instruction,  # オリジナルの指示を保存
+                        negative_prompt="",  # xAIは自動処理
+                        model_name="grok-2-image",
+                        lora_list=None,
+                        steps=0,  # xAIでは不要
+                        cfg_scale=0.0,  # xAIでは不要
+                        sampler="xAI",
+                        scheduler=None,
+                        seed=-1,
+                        width=0,  # 画像サイズは生成後に取得
+                        height=0,
+                        raw_params={
+                            "original_instruction": request.original_instruction,
+                            "xai_model": "grok-2-image",
+                        },
+                    )
+                    session.add(metadata)
+                    await session.commit()
+                    await session.refresh(metadata)
+
+                    task_logger.info(
+                        "Metadata created for xAI generation",
+                        extra={"metadata_id": metadata.id},
+                    )
+
+                    # 画像を保存
+                    task_logger.info("Saving images to storage...")
+                    for i, img in enumerate(images):
+                        # ファイル名生成
+                        image_id = str(uuid.uuid4())
+                        filename = f"{image_id}.png"
+                        file_path = self.settings.image_storage_path / filename
+
+                        # 画像を保存
+                        img.save(file_path, format="PNG")
+                        file_size = file_path.stat().st_size
+
+                        # DB に保存
+                        generated_image = GeneratedImage(
+                            request_id=request.id,
+                            metadata_id=metadata.id,
+                            file_path=str(file_path),
+                            file_size_bytes=file_size,
+                        )
+                        session.add(generated_image)
+
+                        task_logger.info(
+                            f"Saved image {i + 1}/{len(images)}: {filename}",
+                            extra={"file_size": file_size},
+                        )
+
+                    await session.commit()
+
+                    # リクエストを COMPLETED に更新
+                    request.status = RequestStatus.COMPLETED
+                    await session.commit()
+
+                    task_logger.info(
+                        f"xAI direct image generation completed for request: {request_id}"
+                    )
+
+                finally:
+                    await xai_client.close()
+
+            except ApplicationError as e:
+                # アプリケーションエラー
+                request.status = RequestStatus.FAILED
+                request.error_message = e.message
+                await session.commit()
+                raise
+
+            except Exception as e:
+                # 予期しないエラー
+                request.status = RequestStatus.FAILED
+                request.error_message = str(e)
+                await session.commit()
+                raise

@@ -3,6 +3,7 @@
 
 一貫したエラーレスポンスを提供します。
 """
+
 from enum import Enum
 from typing import Any, Optional
 
@@ -92,9 +93,7 @@ class StableDiffusionTimeoutError(ApplicationError):
     """Stable Diffusion タイムアウトエラー"""
 
     def __init__(self, message: str, details: Optional[dict[str, Any]] = None, **kwargs):
-        super().__init__(
-            code=ErrorCode.SD_API_TIMEOUT, message=message, details=details, **kwargs
-        )
+        super().__init__(code=ErrorCode.SD_API_TIMEOUT, message=message, details=details, **kwargs)
 
 
 class LLMAPIError(ApplicationError):
@@ -108,9 +107,7 @@ class DatabaseError(ApplicationError):
     """データベースエラー"""
 
     def __init__(self, message: str, details: Optional[dict[str, Any]] = None, **kwargs):
-        super().__init__(
-            code=ErrorCode.DATABASE_ERROR, message=message, details=details, **kwargs
-        )
+        super().__init__(code=ErrorCode.DATABASE_ERROR, message=message, details=details, **kwargs)
 
 
 class RecordNotFoundError(ApplicationError):

@@ -1,6 +1,7 @@
 """
 ヘルスチェックエンドポイント
 """
+
 from datetime import datetime
 
 from fastapi import APIRouter

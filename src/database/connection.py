@@ -3,6 +3,7 @@
 
 SQLAlchemy async engine を提供します。
 """
+
 from typing import AsyncGenerator
 
 from sqlalchemy import event
