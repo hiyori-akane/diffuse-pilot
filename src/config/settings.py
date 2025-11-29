@@ -50,12 +50,19 @@ class Settings(BaseSettings):
     environment: str = Field(default="development", description="実行環境")
 
     # Default Generation Settings
+    default_model: str | None = Field(
+        default=None, description="デフォルト SD モデル（環境変数 DEFAULT_MODEL から取得）"
+    )
     default_image_count: int = Field(default=4, description="デフォルト画像生成枚数")
     default_width: int = Field(default=512, description="デフォルト画像幅")
     default_height: int = Field(default=512, description="デフォルト画像高さ")
     default_steps: int = Field(default=20, description="デフォルトステップ数")
     default_cfg_scale: float = Field(default=7.0, description="デフォルト CFG スケール")
-    default_sampler: str = Field(default="Euler a", description="デフォルトサンプラー")
+    default_sampler: str | None = Field(default=None, description="デフォルトサンプラー")
+    # Scheduler は未指定時 API の自動選択に委ねるため任意
+    default_scheduler: str | None = Field(
+        default=None, description="デフォルトスケジューラ（未指定時は送信しない）"
+    )
 
     # Queue Configuration
     queue_error_retry_interval: float = Field(

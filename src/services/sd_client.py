@@ -33,7 +33,7 @@ class SDGenerationParams:
         lora_list: Optional[list[dict[str, Any]]] = None,
         steps: int = 20,
         cfg_scale: float = 7.0,
-        sampler: str = "Euler a",
+        sampler: Optional[str] = None,
         scheduler: Optional[str] = None,
         seed: int = -1,
         width: int = 512,
@@ -62,12 +62,14 @@ class SDGenerationParams:
             "negative_prompt": self.negative_prompt,
             "steps": self.steps,
             "cfg_scale": self.cfg_scale,
-            "sampler_name": self.sampler,
             "seed": self.seed,
             "width": self.width,
             "height": self.height,
             "batch_size": self.batch_size,
         }
+
+        if self.sampler:
+            params["sampler_name"] = self.sampler
 
         if self.scheduler:
             params["scheduler"] = self.scheduler
@@ -112,6 +114,63 @@ class StableDiffusionClient:
 
             # API リクエスト
             request_data = params.to_dict()
+
+            # サンプラー検証（存在しない場合は省略し API に委ねる）
+            sampler_name = request_data.get("sampler_name")
+            if sampler_name:
+                try:
+                    # キャッシュされたサンプラー一覧を使用（未取得なら取得）
+                    if not hasattr(self, "_cached_samplers"):
+                        self._cached_samplers = await self.get_samplers()
+                    if sampler_name not in self._cached_samplers:
+                        logger.warning(
+                            f"Unknown sampler '{sampler_name}', omitting to let API choose",
+                            extra={"sampler_name": sampler_name},
+                        )
+                        # 不明サンプラーを除去
+                        request_data.pop("sampler_name", None)
+                except Exception as _e:
+                    # 検証失敗時は警告のみで続行
+                    logger.warning(
+                        "Sampler validation failed, proceeding without validation",
+                        extra={"error": str(_e)},
+                    )
+
+            # スケジューラ検証（存在しない場合は省略し API に委ねる）
+            scheduler = request_data.get("scheduler")
+            if scheduler:
+                try:
+                    # キャッシュされたスケジューラ一覧を使用（未取得なら取得）
+                    if not hasattr(self, "_cached_schedulers"):
+                        self._cached_schedulers = await self.get_schedulers()
+                    if scheduler not in self._cached_schedulers:
+                        logger.warning(
+                            f"Unknown scheduler '{scheduler}', omitting to let API choose",
+                            extra={"scheduler": scheduler},
+                        )
+                        # 不明スケジューラを除去
+                        request_data.pop("scheduler", None)
+                except Exception as _e:
+                    # 検証失敗時は警告のみで続行
+                    logger.warning(
+                        "Scheduler validation failed, proceeding without validation",
+                        extra={"error": str(_e)},
+                    )
+
+            # 送信前のサンプラー/スケジューラ確認ログ
+            logger.info(
+                (
+                    "SD request parameters: sampler_name=%s scheduler=%s steps=%s cfg_scale=%s "
+                    "size=%sx%s batch_size=%s"
+                ),
+                request_data.get("sampler_name"),
+                request_data.get("scheduler"),
+                request_data.get("steps"),
+                request_data.get("cfg_scale"),
+                request_data.get("width"),
+                request_data.get("height"),
+                request_data.get("batch_size"),
+            )
 
             response = await self.client.post(
                 f"{self.base_url}/sdapi/v1/txt2img", json=request_data

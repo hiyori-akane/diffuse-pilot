@@ -367,6 +367,23 @@ class SettingsService:
                         "CFG スケールは 1.0 から 30.0 の数値である必要があります",
                     )
 
+            # sampler / scheduler のバリデーション（文字列チェックのみ、存在確認は送信時）
+            if "sampler" in default_sd_params:
+                sampler = default_sd_params["sampler"]
+                if not isinstance(sampler, str) or len(sampler.strip()) == 0:
+                    raise ApplicationError(
+                        ErrorCode.VALIDATION_ERROR,
+                        "sampler は空でない文字列である必要があります",
+                    )
+
+            if "scheduler" in default_sd_params:
+                scheduler = default_sd_params["scheduler"]
+                if not isinstance(scheduler, str) or len(scheduler.strip()) == 0:
+                    raise ApplicationError(
+                        ErrorCode.VALIDATION_ERROR,
+                        "scheduler は空でない文字列である必要があります",
+                    )
+
             # width, height のバリデーション
             for dim in ["width", "height"]:
                 if dim in default_sd_params:

@@ -51,6 +51,11 @@ DATABASE_URL=sqlite+aiosqlite:///./data/database.db
 
 # Storage Configuration
 IMAGE_STORAGE_PATH=./data/images
+
+# Generation Defaults
+DEFAULT_SAMPLER=Euler a
+# DEFAULT_SCHEDULER=Automatic  # 任意。未設定なら自動選択に委ねる
+DEFAULT_MODEL=sdxl  # 任意。グローバル既定モデル
 ```
 
 ### 2. 依存関係のインストール
