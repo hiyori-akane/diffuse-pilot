@@ -1,0 +1,699 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Image Generation Agent API",
+    "description": "Discord ベースの画像生成エージェント用 API。プロンプト生成、設定選定、画像生成リクエストの管理、履歴照会などを提供します。",
+    "version": "1.0.0",
+    "contact": {
+      "name": "Diffuse Pilot Project",
+      "url": "https://github.com/hiyori-akane/diffuse-pilot"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8000",
+      "description": "ローカル開発サーバー"
+    },
+    {
+      "url": "https://api.diffuse-pilot.example.com",
+      "description": "本番環境（例）"
+    }
+  ],
+  "paths": {
+    "/api/v1/generate": {
+      "post": {
+        "summary": "画像生成リクエストを作成",
+        "description": "ユーザーの自然言語指示から画像生成リクエストをキューに追加します。プロンプト生成と設定選定は自動で行われます。",
+        "operationId": "createGenerationRequest",
+        "tags": ["Generation"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GenerationRequestInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "リクエストが受け付けられ、キューに追加されました",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenerationRequestResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/api/v1/requests/{request_id}": {
+      "get": {
+        "summary": "生成リクエストの詳細を取得",
+        "description": "指定された request_id の詳細（ステータス、使用された設定、生成画像へのリンク等）を返します。",
+        "operationId": "getGenerationRequest",
+        "tags": ["Generation"],
+        "parameters": [
+          {
+            "name": "request_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "生成リクエストの UUID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "リクエスト詳細",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GenerationRequestDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/api/v1/threads/{thread_id}/context": {
+      "get": {
+        "summary": "スレッドコンテキストを取得",
+        "description": "指定されたスレッドの生成履歴と最新設定を返します。",
+        "operationId": "getThreadContext",
+        "tags": ["Context"],
+        "parameters": [
+          {
+            "name": "thread_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Discord スレッド ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "スレッドコンテキスト",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThreadContextResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/api/v1/settings": {
+      "get": {
+        "summary": "グローバル設定を取得",
+        "description": "指定されたサーバー（guild）とユーザーのグローバル設定を返します。",
+        "operationId": "getGlobalSettings",
+        "tags": ["Settings"],
+        "parameters": [
+          {
+            "name": "guild_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Discord サーバー（guild）ID"
+          },
+          {
+            "name": "user_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Discord ユーザー ID（省略時はサーバーデフォルト）"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "グローバル設定",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GlobalSettingsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      },
+      "put": {
+        "summary": "グローバル設定を更新",
+        "description": "サーバー（guild）またはユーザーのグローバル設定を更新します。",
+        "operationId": "updateGlobalSettings",
+        "tags": ["Settings"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GlobalSettingsInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "設定が更新されました",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GlobalSettingsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/api/v1/loras": {
+      "get": {
+        "summary": "利用可能な LoRA リストを取得",
+        "description": "システムに登録されている LoRA の一覧を返します。",
+        "operationId": "listLoras",
+        "tags": ["LoRA"],
+        "responses": {
+          "200": {
+            "description": "LoRA リスト",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "loras": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/LoRAMetadataResponse"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalServerError"
+          }
+        }
+      }
+    },
+    "/api/v1/health": {
+      "get": {
+        "summary": "ヘルスチェック",
+        "description": "API サーバーの稼働状態を返します。",
+        "operationId": "healthCheck",
+        "tags": ["System"],
+        "responses": {
+          "200": {
+            "description": "稼働中",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "example": "ok"
+                    },
+                    "timestamp": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "GenerationRequestInput": {
+        "type": "object",
+        "required": ["guild_id", "user_id", "thread_id", "instruction"],
+        "properties": {
+          "guild_id": {
+            "type": "string",
+            "description": "Discord サーバー ID"
+          },
+          "user_id": {
+            "type": "string",
+            "description": "Discord ユーザー ID"
+          },
+          "thread_id": {
+            "type": "string",
+            "description": "Discord スレッド ID"
+          },
+          "instruction": {
+            "type": "string",
+            "description": "ユーザーの自然言語指示",
+            "maxLength": 2000
+          },
+          "web_research": {
+            "type": "boolean",
+            "description": "Web リサーチを有効にするか（デフォルト: false）",
+            "default": false
+          }
+        }
+      },
+      "GenerationRequestResponse": {
+        "type": "object",
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "生成リクエストの UUID"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "processing", "completed", "failed"],
+            "description": "リクエストのステータス"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "作成日時（UTC）"
+          }
+        }
+      },
+      "GenerationRequestDetail": {
+        "type": "object",
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "guild_id": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": "string"
+          },
+          "thread_id": {
+            "type": "string"
+          },
+          "original_instruction": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "processing", "completed", "failed"]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "error_message": {
+            "type": "string",
+            "nullable": true
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/GenerationMetadataResponse",
+            "nullable": true
+          },
+          "images": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GeneratedImageResponse"
+            }
+          }
+        }
+      },
+      "GenerationMetadataResponse": {
+        "type": "object",
+        "properties": {
+          "metadata_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "negative_prompt": {
+            "type": "string",
+            "nullable": true
+          },
+          "model_name": {
+            "type": "string"
+          },
+          "lora_list": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "weight": {
+                  "type": "number",
+                  "format": "float"
+                }
+              }
+            },
+            "nullable": true
+          },
+          "steps": {
+            "type": "integer"
+          },
+          "cfg_scale": {
+            "type": "number",
+            "format": "float"
+          },
+          "sampler": {
+            "type": "string"
+          },
+          "scheduler": {
+            "type": "string",
+            "nullable": true
+          },
+          "seed": {
+            "type": "integer"
+          },
+          "width": {
+            "type": "integer"
+          },
+          "height": {
+            "type": "integer"
+          },
+          "raw_params": {
+            "type": "object",
+            "nullable": true,
+            "additionalProperties": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "GeneratedImageResponse": {
+        "type": "object",
+        "properties": {
+          "image_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "file_path": {
+            "type": "string"
+          },
+          "discord_url": {
+            "type": "string",
+            "nullable": true
+          },
+          "file_size_bytes": {
+            "type": "integer"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ThreadContextResponse": {
+        "type": "object",
+        "properties": {
+          "thread_id": {
+            "type": "string"
+          },
+          "guild_id": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": "string"
+          },
+          "generation_history": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "latest_metadata": {
+            "$ref": "#/components/schemas/GenerationMetadataResponse",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "GlobalSettingsInput": {
+        "type": "object",
+        "required": ["guild_id"],
+        "properties": {
+          "guild_id": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "default_model": {
+            "type": "string",
+            "nullable": true
+          },
+          "default_lora_list": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "weight": {
+                  "type": "number",
+                  "format": "float"
+                }
+              }
+            },
+            "nullable": true
+          },
+          "default_prompt_suffix": {
+            "type": "string",
+            "nullable": true
+          },
+          "default_sd_params": {
+            "type": "object",
+            "nullable": true,
+            "additionalProperties": true
+          }
+        }
+      },
+      "GlobalSettingsResponse": {
+        "type": "object",
+        "properties": {
+          "settings_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "guild_id": {
+            "type": "string"
+          },
+          "user_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "default_model": {
+            "type": "string",
+            "nullable": true
+          },
+          "default_lora_list": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "weight": {
+                  "type": "number",
+                  "format": "float"
+                }
+              }
+            },
+            "nullable": true
+          },
+          "default_prompt_suffix": {
+            "type": "string",
+            "nullable": true
+          },
+          "default_sd_params": {
+            "type": "object",
+            "nullable": true,
+            "additionalProperties": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "LoRAMetadataResponse": {
+        "type": "object",
+        "properties": {
+          "lora_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "file_path": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "nullable": true
+          },
+          "file_hash": {
+            "type": "string",
+            "nullable": true
+          },
+          "downloaded_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "エラーメッセージ"
+          },
+          "detail": {
+            "type": "string",
+            "description": "詳細情報"
+          }
+        }
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "不正なリクエスト",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "リソースが見つかりません",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "InternalServerError": {
+        "description": "内部サーバーエラー",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "Generation",
+      "description": "画像生成リクエスト関連のエンドポイント"
+    },
+    {
+      "name": "Context",
+      "description": "スレッドコンテキスト管理"
+    },
+    {
+      "name": "Settings",
+      "description": "グローバル設定管理"
+    },
+    {
+      "name": "LoRA",
+      "description": "LoRA メタデータ管理"
+    },
+    {
+      "name": "System",
+      "description": "システム監視・ヘルスチェック"
+    }
+  ]
+}
